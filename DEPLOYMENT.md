@@ -12,6 +12,11 @@
    - Select your repository
    - Render will automatically detect the `render.yaml` file
 
+**If you get "gunicorn: command not found" error:**
+- Use `render-simple.yaml` instead of `render.yaml`
+- Or manually set build command: `pip install Flask gunicorn pandas numpy tavily-python openai python-dotenv openpyxl`
+- Start command: `gunicorn --bind 0.0.0.0:$PORT app:app`
+
 3. **Set Environment Variables**:
    - In your Render dashboard, go to your service
    - Navigate to "Environment" tab

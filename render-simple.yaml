@@ -1,13 +1,13 @@
 services:
   - type: web
-    name: insight-ai
+    name: insight-ai-simple
     env: python
     plan: free
     buildCommand: |
-      pip install --upgrade pip
-      pip install -r requirements-simple.txt
-      pip list
-    startCommand: chmod +x start.sh && ./start.sh
+      pip install Flask gunicorn pandas numpy tavily-python openai python-dotenv openpyxl
+    startCommand: |
+      echo "Starting on port $PORT"
+      gunicorn --bind 0.0.0.0:$PORT --workers 1 --timeout 120 app:app
     envVars:
       - key: PYTHON_VERSION
         value: 3.9.16
