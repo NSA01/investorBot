@@ -2,7 +2,6 @@ from flask import Flask, render_template, request, jsonify, session, Response, s
 import pandas as pd
 import faiss
 import numpy as np
-from sentence_transformers import SentenceTransformer
 from tavily import TavilyClient
 import os
 from datetime import datetime
@@ -36,8 +35,7 @@ if not TAVILY_API_KEY:
 if not OPENAI_API_KEY:
     raise ValueError("OPENAI_API_KEY environment variable is required")
 
-# Initialize models and clients
-embedder = SentenceTransformer('all-MiniLM-L6-v2')
+# Initialize clients
 tavily_client = TavilyClient(api_key=TAVILY_API_KEY)
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
@@ -67,16 +65,35 @@ class ChatBot:
             df = pd.read_excel(EXCEL_FILE)
             self.posts_data = df.to_dict('records')
             
-            # Create embeddings for all posts
+            # Create embeddings for all posts using OpenAI
             texts = [f"{post.get('title', '')} {post.get('content', '')}" for post in self.posts_data]
-            embeddings = embedder.encode(texts)
             
-            # Create FAISS index
-            dimension = embeddings.shape[1]
-            self.faiss_index = faiss.IndexFlatL2(dimension)
-            self.faiss_index.add(embeddings.astype('float32'))
+            # Use OpenAI embeddings instead of SentenceTransformer
+            embeddings = []
+            for text in texts:
+                try:
+                    response = openai_client.embeddings.create(
+                        model="text-embedding-ada-002",
+                        input=text
+                    )
+                    embeddings.append(response.data[0].embedding)
+                except Exception as e:
+                    print(f"Error creating embedding for text: {e}")
+                    # Use zero vector as fallback
+                    embeddings.append([0.0] * 1536)  # OpenAI ada-002 dimension
             
-            print(f"Loaded {len(self.posts_data)} posts and created FAISS index")
+            if embeddings:
+                embeddings_array = np.array(embeddings)
+                # Create FAISS index
+                dimension = embeddings_array.shape[1]
+                self.faiss_index = faiss.IndexFlatL2(dimension)
+                self.faiss_index.add(embeddings_array.astype('float32'))
+                
+                print(f"Loaded {len(self.posts_data)} posts and created FAISS index using OpenAI embeddings")
+            else:
+                print("No embeddings created, skipping FAISS index")
+                self.faiss_index = None
+                
         except Exception as e:
             print(f"Error loading data: {e}")
             self.posts_data = []
@@ -133,19 +150,30 @@ class ChatBot:
             return False
     
     def search_similar_posts(self, query, k=3):
-        """Search for similar posts using FAISS"""
+        """Search for similar posts using FAISS with OpenAI embeddings"""
         if self.faiss_index is None or len(self.posts_data) == 0:
             return []
         
-        query_embedding = embedder.encode([query])
-        distances, indices = self.faiss_index.search(query_embedding.astype('float32'), k)
-        
-        similar_posts = []
-        for idx in indices[0]:
-            if idx < len(self.posts_data):
-                similar_posts.append(self.posts_data[idx])
-        
-        return similar_posts
+        try:
+            # Create query embedding using OpenAI
+            response = openai_client.embeddings.create(
+                model="text-embedding-ada-002",
+                input=query
+            )
+            query_embedding = np.array([response.data[0].embedding])
+            
+            # Search in FAISS index
+            distances, indices = self.faiss_index.search(query_embedding.astype('float32'), k)
+            
+            similar_posts = []
+            for idx in indices[0]:
+                if idx < len(self.posts_data):
+                    similar_posts.append(self.posts_data[idx])
+            
+            return similar_posts
+        except Exception as e:
+            print(f"Error searching similar posts: {e}")
+            return []
     
     def search_web(self, query):
         """Search the web using Tavily API"""
