@@ -499,20 +499,23 @@ def chat_stream():
                             print(f"Executing web search for: {search_query}")
                             
                             # Send "performing web search" message
-                            yield f"data: {json.dumps({'content': '\\n\\n🔍 **Performing a web search...**\\n', 'source': 'searching'})}\\n\\n"
+                            search_msg = json.dumps({'content': '\n\n🔍 **Performing a web search...**\n', 'source': 'searching'})
+                            yield f"data: {search_msg}\n\n"
                             
                             # Send progress update for fintechnews.ae search
-                            yield f"data: {json.dumps({'content': '\\n\\n🔍 **Step 1:** Searching fintechnews.ae for Saudi Arabia fintech content...\\n', 'source': 'progress'})}\\n\\n"
+                            step1_msg = json.dumps({'content': '\n\n🔍 **Step 1:** Searching fintechnews.ae for Saudi Arabia fintech content...\n', 'source': 'progress'})
+                            yield f"data: {step1_msg}\n\n"
                             
                             # Execute web search
                             web_results = chatbot.search_web(search_query)
                             
                             # Send progress update for general search
-                            yield f"data: {json.dumps({'content': '\\n\\n🌐 **Step 2:** Completed general search and prioritizing results...\\n', 'source': 'progress'})}\\n\\n"
+                            step2_msg = json.dumps({'content': '\n\n🌐 **Step 2:** Completed general search and prioritizing results...\n', 'source': 'progress'})
+                            yield f"data: {step2_msg}\n\n"
                             
                             if web_results and len(web_results) > 0:
                                 # Send sources first
-                                sources_text = "\\n\\n📚 **Sources:**\\n"
+                                sources_text = "\n\n📚 **Sources:**\n"
                                 max_sources = min(5, len(web_results))  # Show up to 5 sources
                                 for i, result in enumerate(web_results[:max_sources]):
                                     url = result.get('url', 'Unknown')
@@ -522,7 +525,7 @@ def chat_stream():
                                     sources_text += f"{i+1}. [{display_title}]({url})\n"
                                 
                                 if len(web_results) > max_sources:
-                                    sources_text += f"\\n*... and {len(web_results) - max_sources} more sources*"
+                                    sources_text += f"\n*... and {len(web_results) - max_sources} more sources*"
                                 
                                 yield f"data: {json.dumps({'content': sources_text, 'source': 'sources'})}\n\n"
                                 
@@ -571,10 +574,12 @@ Stream your response naturally and engagingly."""
                                 )
                                 
                                 # Stream the web search response
-                                yield f"data: {json.dumps({'content': '\\n\\n💡 **Answer:**\\n', 'source': 'web_search'})}\\n\\n"
+                                answer_msg = json.dumps({'content': '\n\n💡 **Answer:**\n', 'source': 'web_search'})
+                                yield f"data: {answer_msg}\n\n"
                                 
                                 # Send progress update for response generation
-                                yield f"data: {json.dumps({'content': '\\n\\n📝 **Step 3:** Generating comprehensive response based on search results...\\n', 'source': 'progress'})}\\n\\n"
+                                step3_msg = json.dumps({'content': '\n\n📝 **Step 3:** Generating comprehensive response based on search results...\n', 'source': 'progress'})
+                                yield f"data: {step3_msg}\n\n"
                                 
                                 for chunk in web_response:
                                     if chunk.choices[0].delta.content:
@@ -583,14 +588,16 @@ Stream your response naturally and engagingly."""
                                 
                             else:
                                 # No web results found
-                                yield f"data: {json.dumps({'content': '\\n\\n❌ No current information found for this topic. Please try rephrasing your question.', 'source': 'no_data'})}\\n\\n"
+                                no_data_msg = json.dumps({'content': '\n\n❌ No current information found for this topic. Please try rephrasing your question.', 'source': 'no_data'})
+                                yield f"data: {no_data_msg}\n\n"
                                 
                         except Exception as e:
                             print(f"Error executing web search: {e}")
                             print(f"Tool call: {tool_call}")
                             import traceback
                             traceback.print_exc()
-                            yield f"data: {json.dumps({'content': '\\n\\n⚠️ Web search encountered an error. Please try rephrasing your question.', 'source': 'error'})}\\n\\n"
+                            error_msg = json.dumps({'content': '\n\n⚠️ Web search encountered an error. Please try rephrasing your question.', 'source': 'error'})
+                            yield f"data: {error_msg}\n\n"
             
             yield f"data: {json.dumps({'done': True})}\n\n"
             
