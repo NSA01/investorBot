@@ -982,4 +982,11 @@ def get_excel_chat_history():
     return jsonify(session.get('excel_chat_history', []))
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000) 
+    # Get port from environment variable (for Render deployment)
+    port = int(os.environ.get('PORT', 5000))
+    
+    print(f"🚀 Starting Insight AI on port {port}...")
+    print(f"🌐 Server will be available at: http://0.0.0.0:{port}")
+    
+    # Use 0.0.0.0 for production deployment
+    app.run(host='0.0.0.0', port=port, debug=False) 
