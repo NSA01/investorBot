@@ -1,0 +1,10 @@
+flask
+pandas
+faiss-cpu
+numpy
+sentence-transformers
+tavily-python
+openai
+python-dotenv
+Werkzeug
+openpyxl
