@@ -11,6 +11,7 @@ from openai import OpenAI
 import time
 import pandas as pd
 from werkzeug.utils import secure_filename
+from supabase import create_client, Client
 
 # Load environment variables from .env file
 try:
@@ -25,9 +26,14 @@ app.config['SESSION_TYPE'] = 'filesystem'
 app.config['PERMANENT_SESSION_LIFETIME'] = 3600  # 1 hour
 
 # Configuration
-TAVILY_API_KEY = os.getenv('TAVILY_API_KEY')
+TAVILY_API_KEY = os.getenv('TAVILY_API_KEY','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')
 EXCEL_FILE = os.getenv('EXCEL_FILE', 'linkedin_user_posts_1752243703.xlsx')
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY','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')
+
+SUPABASE_URL = os.getenv('SUPABASE_URL', 'https://sxbkibkzmlvmbvlfijyf.supabase.co')
+SUPABASE_KEY = os.getenv('SUPABASE_KEY', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN4YmtpYmt6bWx2bWJ2bGZpanlmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1MTYzODc3MCwiZXhwIjoyMDY3MjE0NzcwfQ.5nxZDHf_wxtXhGGwMxPhMiRYFr1bVXckdcny21ynsRM')
+
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # Validate required environment variables
 if not TAVILY_API_KEY:
@@ -53,51 +59,64 @@ ALLOWED_TOPICS = [
     'data', 'analytics', 'analysis', 'research'
 ]
 
+# Remove LinkedIn posts loading and context from ChatBot
 class ChatBot:
     def __init__(self):
-        self.faiss_index = None
-        self.posts_data = []
-        self.load_and_index_data()
-    
-    def load_and_index_data(self):
-        """Load LinkedIn posts from Excel and create FAISS index"""
+        pass
+
+    def fetch_supabase_context(self, user_message, max_results=3):
+        """Fetch the latest context from Supabase stored_data table (no filtering), with explanations for special queries."""
+        special_queries = {
+            "Search in this website https://fintechnews.ae/": "Result from fintechnews.ae for Gulf region data.",
+            "search in linkedin for marcelvanoost": "Result from LinkedIn search for Marcel van Oost's posts.",
+            "Latest News in Technology by 3 days": "Latest technology news from the past 3 days.",
+            "Latest News in Studio by 3 days": "Latest studio news from the past 3 days.",
+            "Latest News in Investments by 3 days": "Latest investment news from the past 3 days.",
+            "Latest News in Venture Building by 3 days": "Latest venture building news from the past 3 days."
+        }
         try:
-            df = pd.read_excel(EXCEL_FILE)
-            self.posts_data = df.to_dict('records')
-            
-            # Create embeddings for all posts using OpenAI
-            texts = [f"{post.get('title', '')} {post.get('content', '')}" for post in self.posts_data]
-            
-            # Use OpenAI embeddings instead of SentenceTransformer
-            embeddings = []
-            for text in texts:
+            response = supabase.table('stored_data').select('*').order('created_at', desc=True).limit(max_results).execute()
+            data = response.data if hasattr(response, 'data') else response.get('data', [])
+            context_chunks = []
+            for row in data:
+                query = row.get('query', '').strip()
+                explanation = special_queries.get(query, None)
+                # Try to parse result as JSON, fallback to string
+                result = row.get('result', '')
                 try:
-                    response = openai_client.embeddings.create(
-                        model="text-embedding-ada-002",
-                        input=text
-                    )
-                    embeddings.append(response.data[0].embedding)
-                except Exception as e:
-                    print(f"Error creating embedding for text: {e}")
-                    # Use zero vector as fallback
-                    embeddings.append([0.0] * 1536)  # OpenAI ada-002 dimension
-            
-            if embeddings:
-                embeddings_array = np.array(embeddings)
-                # Create FAISS index
-                dimension = embeddings_array.shape[1]
-                self.faiss_index = faiss.IndexFlatL2(dimension)
-                self.faiss_index.add(embeddings_array.astype('float32'))
-                
-                print(f"Loaded {len(self.posts_data)} posts and created FAISS index using OpenAI embeddings")
-            else:
-                print("No embeddings created, skipping FAISS index")
-                self.faiss_index = None
-                
+                    parsed = json.loads(result)
+                    if isinstance(parsed, list):
+                        for item in parsed:
+                            title = item.get('title', '')
+                            content = item.get('content', '')[:150]
+                            url = item.get('url', '')
+                            chunk = f"Title: {title}\nContent: {content}...\nURL: {url}"
+                            if explanation:
+                                chunk = f"{explanation}\n{chunk}"
+                            context_chunks.append(chunk)
+                    elif isinstance(parsed, dict):
+                        title = parsed.get('title', '')
+                        content = parsed.get('content', '')
+                        url = parsed.get('url', '')
+                        chunk = f"Title: {title}\nContent: {content}...\nURL: {url}"
+                        if explanation:
+                            chunk = f"{explanation}\n{chunk}"
+                        context_chunks.append(chunk)
+                    else:
+                        chunk = str(parsed)
+                        if explanation:
+                            chunk = f"{explanation}\n{chunk}"
+                        context_chunks.append(chunk)
+                except Exception:
+                    chunk = str(result)
+                    if explanation:
+                        chunk = f"{explanation}\n{chunk}"
+                    context_chunks.append(chunk)
+            return context_chunks
         except Exception as e:
-            print(f"Error loading data: {e}")
-            self.posts_data = []
-    
+            print(f"Error fetching Supabase context: {e}")
+            return []
+
     def check_topic_relevance_openai(self, text):
         """Use OpenAI to check if the text is relevant to allowed topics"""
         try:
@@ -149,32 +168,6 @@ class ChatBot:
                 
             return False
     
-    def search_similar_posts(self, query, k=3):
-        """Search for similar posts using FAISS with OpenAI embeddings"""
-        if self.faiss_index is None or len(self.posts_data) == 0:
-            return []
-        
-        try:
-            # Create query embedding using OpenAI
-            response = openai_client.embeddings.create(
-                model="text-embedding-ada-002",
-                input=query
-            )
-            query_embedding = np.array([response.data[0].embedding])
-            
-            # Search in FAISS index
-            distances, indices = self.faiss_index.search(query_embedding.astype('float32'), k)
-            
-            similar_posts = []
-            for idx in indices[0]:
-                if idx < len(self.posts_data):
-                    similar_posts.append(self.posts_data[idx])
-            
-            return similar_posts
-        except Exception as e:
-            print(f"Error searching similar posts: {e}")
-            return []
-    
     def search_web(self, query):
         """Search the web using Tavily API"""
         try:
@@ -187,7 +180,7 @@ class ChatBot:
                 return []
             
             # First, try to search specifically on fintechnews.ae for Saudi Arabia content
-            fintechnews_query = f"site:fintechnews.ae Saudi Arabia fintech {query}"
+            fintechnews_query = f"site:fintechnews.ae  {query}"
             print(f"Searching fintechnews.ae specifically: {fintechnews_query}")
             
             try:
@@ -299,52 +292,26 @@ class ChatBot:
             return []
     
     def generate_response_stream(self, user_message):
-        """Generate streaming response using OpenAI"""
+        """Generate streaming response using OpenAI (Supabase context always provided, fallback to web search if needed)."""
         try:
             # Check topic relevance first
             if not self.check_topic_relevance_openai(user_message):
                 return {
                     'response': "Hello! I'm Awn, your AI assistant specializing in investments, fintech, startups, and business insights. I'm here to help you with questions about these topics, or you can ask me general questions about my capabilities. How can I assist you today?",
                     'source': 'topic_guardian',
-                    'similar_posts': [],
                     'web_results': []
                 }
-            
-            # Search similar posts for context
-            similar_posts = self.search_similar_posts(user_message)
-            
-            # Create context from similar posts
+
+            # Always provide Supabase context first
+            supabase_context_chunks = self.fetch_supabase_context(user_message)
             context = ""
-            if similar_posts:
-                context = "Based on LinkedIn posts:\n" + "\n\n".join([
-                    f"Post: {post.get('title', '')}\n{post.get('content', '')[:300]}..."
-                    for post in similar_posts[:2]
-                ])
-            
+            if supabase_context_chunks:
+                context = "Based on Supabase data (retrieval-augmented):\n" + "\n\n".join(supabase_context_chunks)
+            else:
+                context = "No recent Supabase data available."
+
             # Create system prompt for OpenAI
-            system_prompt = f"""You are Awn, an expert AI assistant specializing in investments, fintech, startups, and business insights.
-
-Current date: {datetime.now().strftime('%Y-%m-%d')}
-
-Available context from LinkedIn posts:
-{context}
-
-Instructions:
-1. If the LinkedIn context is relevant and sufficient, use it to provide a detailed answer
-2. If the LinkedIn context is not relevant or insufficient, use the web search tool to get current information
-3. Always provide helpful, accurate, and professional responses
-4. Focus on practical insights and actionable information
-5. For time-sensitive questions or recent events, use web search
-6. Be aware of the current date and don't make statements about future events as if they're past
-
-CRITICAL GUIDELINES:
-1. You are Awn, an expert AI assistant specializing in investments, fintech, startups, and business insights.
-2. If the user asked you in Arabic, respond in Arabic 
-3. If the user asked you in English, respond in English
-4. Current date is {datetime.now().strftime('%Y-%m-%d')} - be accurate about time
-5. For questions about recent events, future predictions, or time-sensitive information, use web search
-
-Current question: {user_message}"""
+            system_prompt = f"""You are Awn, an expert AI assistant specializing in investments, fintech, startups, and business insights.\n\nCurrent date: {datetime.now().strftime('%Y-%m-%d')}\n\nYou are provided with retrieval-augmented context from Supabase (a business/fintech/startup knowledge base).\n\nContext:\n{context}\n\nInstructions:\n1. If the provided context is relevant and sufficient, use it to answer the user's question.\n2. If the context is not relevant or insufficient, use the web search tool to get current information.\n3. If neither context nor web search is helpful, answer from your own knowledge.\n4. Always provide helpful, accurate, and professional responses.\n5. Focus on practical insights and actionable information.\n6. For time-sensitive questions or recent events, use web search.\n7. Be aware of the current date and don't make statements about future events as if they're past.\n\nCRITICAL GUIDELINES:\n1. You are Awn, an expert AI assistant specializing in investments, fintech, startups, and business insights.\n2. If the user asked you in Arabic, respond in Arabic.\n3. If the user asked you in English, respond in English.\n4. Current date is {datetime.now().strftime('%Y-%m-%d')} - be accurate about time.\n5. For questions about recent events, future predictions, or time-sensitive information, use web search.\n\nCurrent question: {user_message}"""
 
             # Define the web search tool
             tools = [
@@ -366,7 +333,7 @@ Current question: {user_message}"""
                     }
                 }
             ]
-            
+
             # Generate response using OpenAI with function calling
             response = openai_client.chat.completions.create(
                 model="gpt-4",
@@ -379,9 +346,9 @@ Current question: {user_message}"""
                 stream=True,
                 temperature=0.7
             )
-            
+
             return response
-            
+
         except Exception as e:
             print(f"Error generating response: {e}")
             import traceback
@@ -698,12 +665,12 @@ def get_history():
 def dashboard():
     # Create individual dashboard data
     dashboard_data = {
-        'total_posts': len(chatbot.posts_data),
+        'total_posts': 0, # No LinkedIn posts
         'topics': ['Investments', 'Fintech', 'Startups', 'Venture Capital'],
         'recent_activity': [
-            {'date': '2024-01-15', 'posts': 5, 'engagement': 120},
-            {'date': '2024-01-14', 'posts': 3, 'engagement': 85},
-            {'date': '2024-01-13', 'posts': 7, 'engagement': 200},
+            {'date': '2024-01-15', 'posts': 0, 'engagement': 0}, # No LinkedIn posts
+            {'date': '2024-01-14', 'posts': 0, 'engagement': 0}, # No LinkedIn posts
+            {'date': '2024-01-13', 'posts': 0, 'engagement': 0}, # No LinkedIn posts
         ],
         'user_stats': {
             'total_chats': len(session.get('chat_history', [])),
