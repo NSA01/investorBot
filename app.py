@@ -292,7 +292,7 @@ class ChatBot:
             return []
     
     def generate_response_stream(self, user_message):
-        """Generate streaming response using OpenAI (Supabase context always provided, fallback to web search if needed)."""
+        """Generate streaming response using OpenAI (Supabase context)"""
         try:
             # Check topic relevance first
             if not self.check_topic_relevance_openai(user_message):
@@ -302,16 +302,14 @@ class ChatBot:
                     'web_results': []
                 }
 
-            # Always provide Supabase context first
+            # Fetch Supabase context
             supabase_context_chunks = self.fetch_supabase_context(user_message)
             context = ""
             if supabase_context_chunks:
-                context = "Based on Supabase data (retrieval-augmented):\n" + "\n\n".join(supabase_context_chunks)
-            else:
-                context = "No recent Supabase data available."
+                context = "Based on Supabase data:\n" + "\n\n".join(supabase_context_chunks)
 
             # Create system prompt for OpenAI
-            system_prompt = f"""You are Awn, an expert AI assistant specializing in investments, fintech, startups, and business insights.\n\nCurrent date: {datetime.now().strftime('%Y-%m-%d')}\n\nYou are provided with retrieval-augmented context from Supabase (a business/fintech/startup knowledge base).\n\nContext:\n{context}\n\nInstructions:\n1. If the provided context is relevant and sufficient, use it to answer the user's question.\n2. If the context is not relevant or insufficient, use the web search tool to get current information.\n3. If neither context nor web search is helpful, answer from your own knowledge.\n4. Always provide helpful, accurate, and professional responses.\n5. Focus on practical insights and actionable information.\n6. For time-sensitive questions or recent events, use web search.\n7. Be aware of the current date and don't make statements about future events as if they're past.\n\nCRITICAL GUIDELINES:\n1. You are Awn, an expert AI assistant specializing in investments, fintech, startups, and business insights.\n2. If the user asked you in Arabic, respond in Arabic.\n3. If the user asked you in English, respond in English.\n4. Current date is {datetime.now().strftime('%Y-%m-%d')} - be accurate about time.\n5. For questions about recent events, future predictions, or time-sensitive information, use web search.\n\nCurrent question: {user_message}"""
+            system_prompt = f"""You are Awn, an expert AI assistant specializing in investments, fintech, startups, and business insights.\n\nCurrent date: {datetime.now().strftime('%Y-%m-%d')}\n\nAvailable context from Supabase:\n{context}\n\nInstructions:\n1. If the Supabase context is relevant and sufficient, use it to provide a detailed answer\n2. If the Supabase context is not relevant or insufficient, use the web search tool to get current information\n3. Always provide helpful, accurate, and professional responses\n4. Focus on practical insights and actionable information\n5. For time-sensitive questions or recent events, use web search\n6. Be aware of the current date and don't make statements about future events as if they're past\n\nCRITICAL GUIDELINES:\n1. You are Awn, an expert AI assistant specializing in investments, fintech, startups, and business insights.\n2. If the user asked you in Arabic, respond in Arabic \n3. If the user asked you in English, respond in English\n4. Current date is {datetime.now().strftime('%Y-%m-%d')} - be accurate about time\n5. For questions about recent events, future predictions, or time-sensitive information, use web search\n\nCurrent question: {user_message}"""
 
             # Define the web search tool
             tools = [
